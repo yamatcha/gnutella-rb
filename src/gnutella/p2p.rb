@@ -6,11 +6,11 @@ module Gnutella
     attr_reader :descriptor_id, :payload_descriptor, :ttl, :hops, :payload_length
 
     def initialize(args)
-      @descriptor_id = args.fetch(:descriptor_id),
-                       @payload_descriptor = args.fetch(:payload_descriptor),
-                       @ttl = args.fetch(:ttl),
-                       @hops = args.fetch(:hops),
-                       @payload_length = args.fetch(:payload_length)
+      @descriptor_id = args.fetch(:descriptor_id)
+      @payload_descriptor = args.fetch(:payload_descriptor)
+      @ttl = args.fetch(:ttl)
+      @hops = args.fetch(:hops)
+      @payload_length = args.fetch(:payload_length)
     end
   end
 
@@ -27,9 +27,15 @@ module Gnutella
     attr_reader :descriptor_id, :payload_descriptor, :from
 
     def initialize(args)
-      @descriptor_id = args.fetch(:descriptor_id),
-                       @payload_descriptor = args.fetch(:payload_descriptor),
-                       @from = args.fetch(:from)
+      @descriptor_id = args.fetch(:descriptor_id)
+      @payload_descriptor = args.fetch(:payload_descriptor)
+      @from = args.fetch(:from)
+    end
+
+    def ==(other)
+      @descriptor_id == other.descriptor_id &&
+        @payload_descriptor == other.payload_descriptor &&
+        @from == other.from
     end
   end
 end

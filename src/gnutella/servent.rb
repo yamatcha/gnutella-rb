@@ -6,6 +6,7 @@ require_relative 'network'
 module Gnutella
   class Servent
     MAX_TTL = 15
+
     attr_accessor :history, :neighbors, :ip_address, :descriptor_id, :port
 
     def initialize(args)
@@ -17,30 +18,33 @@ module Gnutella
       # @socket = TCPServer.open(@ip_address, @port)
     end
 
-    def send(data, descriptor)
-      p @descriptor_id
+    def send(data, descriptor, option)
       case descriptor
       when PING
-        send_ping(data)
+        send_ping(data, option)
       when PONG
         send_pong(data)
       end
     end
 
     def receive(data, from)
-      his = History.new(descriptor_id: data.header.payload_descriptor, payload_descriptor: data.header.payload_descriptor,
+      his = History.new(descriptor_id: data.header.descriptor_id, payload_descriptor: data.header.payload_descriptor,
                         from: from)
+      return if @history.include?(his)
+
       @history.push(his)
-      process_message(data) if data.header.ttl - 1 == 0
+      process_message(data, from) if data.header.ttl - 1 != 0
     end
 
     private
 
-    def process_message(data)
-      case packet.header.payload_descriptor
+    def process_message(data, from)
+      case data.header.payload_descriptor
       when PING
+        puts "[INFO] #{@descriptor_id} receive ping from #{from}"
         recv_ping(data)
       when PONG
+        puts "[INFO] #{@descriptor_id} receive pong from #{from}"
         recv_pong(data)
       else
         print('Bad descriptor')
@@ -50,10 +54,10 @@ module Gnutella
 
     def flooding(data)
       @neighbors.each do |neighbor|
-        Network.servents.find do |ser|
-          ser.descriptor_id == neighbor
+        a = Network.servents.find do |ser|
+          ser.descriptor_id == neighbor && ser.descriptor_id && (@history.first.nil? || @history.first.from != ser.descriptor_id)
         end
-               .receive(data, @descriptor_id)
+        a.receive(data, @descriptor_id) unless a.nil?
       end
     end
 
@@ -61,9 +65,12 @@ module Gnutella
       next_servent = @history.find do |his|
         his.descriptor_id == data.header.descriptor_id
       end
-      @neighbors.find do |neighbor|
-        neighbor.descriptor_id == next_servent.from
+      @neighbors.map do |neighbor|
+        Network.servents.find do |ser|
+          ser.descriptor_id == neighbor
+        end
       end
+                .find { |ser| ser.descriptor_id == next_servent.from }
                 .receive(data, @descriptor_id)
     end
 
@@ -71,46 +78,52 @@ module Gnutella
       if data.header.descriptor_id == @descriptor_id
         send_pong(data)
       else
-        send_ping(data)
+        send_ping(data, nil)
       end
     end
 
     def recv_pong(data)
-      print(@ip_address) if data.header.descriptor_id == @descriptor_id
+      if @history.find { |his| his.descriptor_id == data.header.descriptor_id && his.payload_descriptor == PING }.nil?
+        puts "[INFO] finish! result is #{data.payload}."
+      else
+        send_pong(data)
+      end
     end
 
-    def send_ping(data)
-      if data.nil?
-        data =
-          Packet.new(
-            payload: nil,
-            header: Header.new(descriptor_id: @descriptor_id, payload_descriptor: PING,
-                               ttl: MAX_TTL, hops: 0, payload_length: 0)
-          )
-      else
-        Packet.new(
-          payload: nil,
-          header: Header.new(descriptor_id: data.header.descriptor_id, payload_descriptor: PONG,
-                             ttl: data.header.ttl - 1, hops: data.header.hops + 1, payload_length: 0)
-        )
-      end
+    def send_ping(data, option)
+      puts "[INFO] #{@descriptor_id} send ping"
+      data = if data.nil?
+               Packet.new(
+                 payload: nil,
+                 header: Header.new(descriptor_id: option, payload_descriptor: PING,
+                                    ttl: MAX_TTL, hops: 0, payload_length: 0)
+               )
+             else
+               Packet.new(
+                 payload: nil,
+                 header: Header.new(descriptor_id: data.header.descriptor_id, payload_descriptor: PING,
+                                    ttl: data.header.ttl - 1, hops: data.header.hops + 1, payload_length: 0)
+               )
+             end
       flooding(data)
     end
 
     def send_pong(data)
-      if data.nil?
+      puts "[INFO] #{@descriptor_id} send pong"
+      if data.header.payload_descriptor == PING
         data =
           Packet.new(
             payload: [@ip_address, @port],
-            header: Header.new(descriptor_id: @descriptor_id, payload_descriptor: PING,
-                               ttl: MAX_TTL, hops: 0, payload: nil)
+            header: Header.new(descriptor_id: @descriptor_id, payload_descriptor: PONG,
+                               ttl: MAX_TTL, hops: 0, payload_length: [@ip_address, @port].to_s.length)
           )
+        trace_back(data)
       else
         data =
           Packet.new(
             payload: data.payload,
             header: Header.new(descriptor_id: data.header.descriptor_id, payload_descriptor: PONG,
-                               ttl: MAX_TTL, hops: 0, payload_length: data.header.payload.to_s.length)
+                               ttl: data.header.ttl - 1, hops: data.header.hops + 1, payload_length: data.header.payload_length)
           )
         trace_back(data)
       end
